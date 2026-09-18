@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>制造业AI Agent平台</title>
+<script src="/static/css/tailwind.js"></script>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .loading { opacity: 0.6; pointer-events: none; }
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: white; z-index: 9999; animation: slideIn 0.3s ease; }
+  @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  .msg-user { background: #2563eb; color: white; }
+  .msg-ai { background: #f1f5f9; color: #1e293b; }
+  .pulse-dot { animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .sidebar-item.active { background: #eff6ff; border-left: 3px solid #2563eb; color: #1d4ed8; }
+  /* 移动端适配 */
+  @media (max-width: 768px) {
+    aside { width: 60px !important; }
+    aside .font-bold, aside .text-xs, aside .text-sm:not(.sidebar-item span) { display: none; }
+    .sidebar-item { justify-content: center; padding: 12px 8px !important; font-size: 0; }
+    .sidebar-item span { font-size: 20px !important; }
+    #dashboardCards { grid-template-columns: 1fr 1fr !important; }
+    .grid-cols-3 { grid-template-columns: 1fr !important; }
+    .grid-cols-2 { grid-template-columns: 1fr !important; }
+  }
+</style>
+</head>
+<body class="bg-slate-50 h-screen flex overflow-hidden">
+
+<div id="app" class="flex-1 flex overflow-hidden"></div>
+
+<script>
+// ═══════ 状态 ═══════
+let token = localStorage.getItem("token") || "";
+let currentUser = JSON.parse(localStorage.getItem("user") || "null");
+let currentPage = "";
+
+// ═══════ API ═══════
+async function api(path, opts={}) {
+  opts.headers = opts.headers || {};
+  if (token) opts.headers["Authorization"] = "Bearer " + token;
+  const r = await fetch(path, opts);
+  if (r.status === 401) { doLogout(); throw new Error("未登录"); }
+  if (!r.ok) { const err = await r.json().catch(()=>({detail: r.statusText})); throw new Error(err.detail || "请求失败"); }
+  return r.json();
+}
+
+function toast(msg, type="success") {
+  const colors = { success: "#16a34a", error: "#dc2626", warning: "#d97706" };
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.style.background = colors[type] || colors.success;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function doLogout() {
+  // 调后端logout，token失效
+  fetch("/api/logout", {method:"POST", headers:{"Authorization": "Bearer " + token}}).catch(()=>{});
+  token = ""; currentUser = null;
+  localStorage.removeItem("token"); localStorage.removeItem("user");
+  render();
+}
+
+// ═══════ 场景配置 ═══════
+const SCENES = {
+  reconciliation: { icon: "💰", title: "采购三单匹配对账", desc: "自动核对采购单/收货单/发票",
+    placeholder: "这个月对账有没有异常？", quick: ["这个月对账有没有异常？"] },
+  delivery: { icon: "📦", title: "销售交期答复", desc: "自动拉订单+库存+在制，给出交期",
+    placeholder: "这单什么时候能出？", quick: ["这单什么时候能出？"] },
+  daily: { icon: "📊", title: "管理每日一页", desc: "汇总全厂异常，按优先级排序",
+    placeholder: "今天工厂我该盯什么？", quick: ["今天工厂我该盯什么？"] },
+  kitting: { icon: "📋", title: "生产齐套欠料", desc: "按BOM计算物料缺口",
+    placeholder: "下周线会不会缺料？", quick: ["下周线会不会缺料？"] },
+  equipment: { icon: "🔧", title: "设备点检维保", desc: "报警汇总+维修建议",
+    placeholder: "今天设备要盯什么？", quick: ["今天设备要盯什么？"] },
+  quality: { icon: "🔍", title: "质量批次追溯", desc: "批次全链路追溯",
+    placeholder: "这批客诉是哪一段出的？", quick: ["这批客诉是哪一段出的？"] },
+};
+
+// ═══════ 登录页 ═══════
+function renderLogin() {
+  return `
+    <div class="flex-1 flex items-center justify-center">
+      <div class="bg-white rounded-2xl shadow-xl p-8 w-96">
+        <div class="text-center mb-6">
+          <div class="text-2xl font-bold text-blue-600">制造业AI Agent平台</div>
+          <p class="text-xs text-slate-400 mt-1">工厂数字员工系统</p>
+          <div class="w-12 h-1 bg-blue-600 rounded-full mx-auto mt-3"></div>
+        </div>
+        <div class="space-y-3">
+          <input id="loginUser" type="text" placeholder="用户名"
+            class="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm">
+          <input id="loginPwd" type="password" placeholder="密码"
+            class="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm">
+          <button id="loginBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg text-sm font-medium">登录</button>
+        </div>
+
+        <div id="loginErr" class="text-sm text-red-500 mt-2 text-center"></div>
+      </div>
+    </div>`;
+}
+
+async function doLogin() {
+  const u = document.getElementById("loginUser").value.trim();
+  const p = document.getElementById("loginPwd").value;
+  try {
+    const res = await fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({username: u, password: p})});
+    if (!res.ok) { document.getElementById("loginErr").textContent = "用户名或密码错误"; return; }
+    const data = await res.json();
+    token = data.token; currentUser = data;
+    localStorage.setItem("token", token); localStorage.setItem("user", JSON.stringify(data));
+    currentPage = data.permissions.scenes[0] || "daily";
+    render();
+  } catch(e) { document.getElementById("loginErr").textContent = "登录失败: " + e.message; }
+}
+
+// ═══════ 主界面 ═══════
+function renderApp() {
+  const perms = currentUser.permissions;
+  const myScenes = perms.scenes.filter(s => SCENES[s]);
+
+  let navHtml = '<a href="#" class="sidebar-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-slate-50" data-page="dashboard"><span>🏠</span> 首页总览</a>';
+  navHtml += '<div class="text-xs text-slate-400 px-3 pt-4 pb-2 font-medium">业务场景</div>';
+  navHtml += myScenes.map(s => `
+    <a href="#" class="sidebar-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-slate-50" data-page="${s}">
+      <span>${SCENES[s].icon}</span> ${SCENES[s].title}
+    </a>`).join("");
+
+  if (perms.pages.length) {
+    navHtml += '<div class="text-xs text-slate-400 px-3 pt-4 pb-2 font-medium">系统管理</div>';
+    if (perms.pages.includes("rules")) navHtml += `<a href="#" class="sidebar-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-slate-50" data-page="rules"><span>📚</span> 知识规则</a>`;
+    if (perms.pages.includes("upload")) navHtml += `<a href="#" class="sidebar-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-slate-50" data-page="upload"><span>📁</span> 数据上传</a>`;
+    if (perms.pages.includes("approval")) navHtml += `<a href="#" class="sidebar-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-slate-50" data-page="approval"><span>📋</span> 待审批 <span id="approvalBadge" class="ml-auto bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center hidden"></span></a>`;
+    if (perms.pages.includes("audit")) navHtml += `<a href="#" class="sidebar-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-slate-50" data-page="audit"><span>📝</span> 审计日志</a>`;
+    if (currentUser.role === "admin") navHtml += `<a href="#" class="sidebar-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-slate-50" data-page="users"><span>👥</span> 用户管理</a>`;
+    if (currentUser.role === "admin") navHtml += `<a href="#" class="sidebar-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-slate-50" data-page="models"><span>🧠</span> 模型配置</a>`;
+    if (currentUser.role === "admin") navHtml += `<a href="#" class="sidebar-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-slate-50" data-page="governance"><span>📊</span> 数据治理</a>`;
+    if (currentUser.role === "admin") navHtml += `<a href="#" class="sidebar-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-slate-50" data-page="evolution"><span>🔄</span> 自进化</a>`;
+    if (currentUser.role === "admin") navHtml += `<a href="#" class="sidebar-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-slate-50" data-page="ops"><span>🛠️</span> 运维管理</a>`;
+  }
+
+  return `
+    <aside class="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
+      <div class="p-5 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <div class="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center text-white text-lg">🏭</div>
+          <div>
+            <div class="font-bold text-slate-800">制造业AI Agent</div>
+            <div class="text-xs text-slate-400">${currentUser.department || ""}</div>
+          </div>
+        </div>
+      </div>
+      <nav class="flex-1 p-3 space-y-1 overflow-y-auto">${navHtml}</nav>
+      <div class="p-4 border-t border-slate-100">
+        <div class="flex items-center justify-between">
+          <div class="flex-1 cursor-pointer" onclick="navTo('settings')">
+            <div class="text-sm font-medium text-slate-700">${currentUser.display_name}</div>
+            <div class="text-xs text-slate-400">${currentUser.role_name}</div>
+          </div>
+          <button onclick="doLogout()" class="text-xs text-slate-400 hover:text-red-500">退出</button>
+        </div>
+      </div>
+    </aside>
+    <main class="flex-1 flex flex-col overflow-hidden">
+      <div class="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-end">
+        <button id="notifBtn" class="relative p-2 rounded-lg hover:bg-slate-100 text-slate-500">
+          🔔
+          <span id="notifBadge" class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center hidden">0</span>
+        </button>
+      </div>
+      <div class="flex-1 flex flex-col overflow-hidden" id="mainContent"></div>
+    </main>`;
+}
+
+// ═══════ 渲染主内容 ═══════
+function renderMain() {
+  const main = document.getElementById("mainContent");
+  if (currentPage === "dashboard") main.innerHTML = renderDashboardPage();
+  else if (currentPage === "notifications") main.innerHTML = renderNotificationsPage();
+  else if (currentPage in SCENES) main.innerHTML = renderChatPage(SCENES[currentPage]);
+  else if (currentPage === "upload") main.innerHTML = renderUploadPage();
+  else if (currentPage === "approval") main.innerHTML = renderApprovalPage();
+  else if (currentPage === "audit") main.innerHTML = renderAuditPage();
+  else if (currentPage === "rules") main.innerHTML = renderRulesPage();
+  else if (currentPage === "users") main.innerHTML = renderUsersPage();
+  else if (currentPage === "models") main.innerHTML = renderModelsPage();
+  else if (currentPage === "governance") main.innerHTML = renderGovernancePage();
+  else if (currentPage === "evolution") main.innerHTML = renderEvolutionPage();
+  else if (currentPage === "settings") main.innerHTML = renderSettingsPage();
+  else if (currentPage === "ops") main.innerHTML = renderOpsPage();
+
+  document.querySelectorAll(".sidebar-item").forEach(el => el.classList.toggle("active", el.dataset.page === currentPage));
+  if (currentPage === "dashboard") bindDashboardEvents();
+  else if (currentPage === "notifications") bindNotificationsEvents();
+  else if (currentPage in SCENES) { bindChatEvents(); loadHistory(); }
+  else if (currentPage === "upload") bindUploadEvents();
+  else if (currentPage === "approval") bindApprovalEvents();
+  else if (currentPage === "audit") bindAuditEvents();
+  else if (currentPage === "rules") bindRulesEvents();
+  else if (currentPage === "users") bindUsersEvents();
+  else if (currentPage === "models") bindModelsEvents();
+  else if (currentPage === "governance") bindGovernanceEvents();
+  else if (currentPage === "evolution") bindEvolutionEvents();
+  else if (currentPage === "settings") bindSettingsEvents();
+  else if (currentPage === "ops") bindOpsEvents();
+}
+
+// ═══════ 对话页 ═══════
+function renderChatPage(scene) {
+  // 设备场景：加状态看板
+  const board = currentPage === "equipment" ? `<div id="equipBoard" class="px-8 pt-4"></div>` : "";
+  return `
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-bold text-slate-800">${scene.icon} ${scene.title}</h1>
+        <p class="text-sm text-slate-500 mt-1">${scene.desc}</p>
+      </div>
+      <button onclick="exportScene('${currentPage}')" class="text-sm bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg">📥 导出</button>
+    </header>
+    ${board}
+    <div class="flex-1 overflow-y-auto p-8 space-y-4" id="chatArea">
+      <div class="text-center text-slate-400 py-20" id="chatEmpty">
+        <div class="text-5xl mb-4">${scene.icon}</div>
+        <p class="text-lg">问我一个问题开始</p>
+      </div>
+    </div>
+    <div class="bg-white border-t border-slate-200 p-4">
+      <div class="flex gap-2 mb-2 flex-wrap">
+        ${scene.quick.map(q=>`<button class="quick-btn text-xs px-3 py-1 bg-slate-100 hover:bg-blue-50 text-slate-600 rounded-full" data-q="${q}">${q}</button>`).join("")}
+      </div>
+      <div class="flex gap-3">
+        <input id="chatInput" type="text" value="${scene.placeholder}"
+          class="flex-1 border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500">
+        <button id="sendBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl text-sm font-medium">发送</button>
+      </div>
+    </div>`;
+}
+
+async function exportScene(scene) {
+  try {
+    const r = await fetch(`/api/export/${scene}`, {method:"POST", headers:{"Authorization": "Bearer " + token}});
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${scene}_report.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) { alert("导出失败"); }
+}
+
+async function loadHistory() {
+  try {
+    const history = await api(`/api/history/${currentPage}`);
+    const area = document.getElementById("chatArea");
+    if (!history.length) return;
+    document.getElementById("chatEmpty")?.remove();
+    area.innerHTML = history.map(m => `
+      <div class="flex ${m.role==='user'?'justify-end':'justify-start'}">
+        <div class="${m.role==='user'?'msg-user':'msg-ai'} max-w-2xl rounded-2xl px-4 py-3 text-sm whitespace-pre-line">${m.content}</div>
+      </div>`).join("");
+    area.scrollTop = area.scrollHeight;
+  } catch(e) {}
+}
+
+function bindChatEvents() {
+  document.querySelectorAll(".quick-btn").forEach(btn => {
+    btn.onclick = () => { document.getElementById("chatInput").value = btn.dataset.q; sendMessage(); };
+  });
+  document.getElementById("sendBtn").onclick = sendMessage;
+  document.getElementById("chatInput").onkeydown = e => { if(e.key==="Enter") sendMessage(); };
+  if (currentPage === "equipment") loadEquipBoard();
+}
+
+async function loadEquipBoard() {
+  try {
+    const data = await api("/api/equipment/status");
+    const el = document.getElementById("equipBoard");
+    if (!el) return;
+    el.innerHTML = `
+      <div class="bg-white rounded-xl border p-4">
+        <div class="font-medium text-slate-800 mb-3">🏭 设备状态看板</div>
+        <div class="grid grid-cols-3 gap-3">
+          ${data.machines.map(m => {
+            const color = m.status === "报警" ? "red" : (m.status === "运行" ? "green" : "yellow");
+            const bg = color === "red" ? "bg-red-50 border-red-200" : (color === "green" ? "bg-green-50 border-green-200" : "bg-yellow-50 border-yellow-200");
+            const dot = color === "red" ? "bg-red-500" : (color === "green" ? "bg-green-500" : "bg-yellow-500");
+            return `<div class="border rounded-lg p-3 ${bg}">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full ${dot}"></span>
+                <span class="font-medium text-sm">${m.equip_id} ${m.name}</span>
+              </div>
+              <div class="text-xs text-slate-500 mt-1">${m.line} · ${m.status}</div>
+              <div class="text-xs text-slate-400 mt-1">运行${m.run_hours}h · 上次保养${m.last_maintenance}</div>
+              ${m.alarm?.length ? `<div class="text-xs text-red-600 mt-1">⚠ ${m.alarm.join("、")}</div>` : ""}
+            </div>`;
+          }).join("")}
+        </div>
+        ${data.active_alarms?.length ? `<div class="mt-3 pt-3 border-t"><div class="text-sm font-medium text-red-600 mb-2">🔴 当前活跃报警（${data.active_alarms.length}条）</div>${data.active_alarms.map(a => `<div class="text-xs text-slate-600">${a.time} ${a.equip_id}: ${a.alarm}（已持续${a.duration_min}分钟）</div>`).join("")}</div>` : ""}
+      </div>`;
+  } catch(e) {}
+}
+
+async function sendMessage() {
+  const input = document.getElementById("chatInput");
+  const q = input.value.trim(); if (!q) return;
+  const area = document.getElementById("chatArea");
+  document.getElementById("chatEmpty")?.remove();
+  area.insertAdjacentHTML("beforeend", `<div class="flex justify-end"><div class="msg-user max-w-2xl rounded-2xl px-4 py-3 text-sm">${q}</div></div><div class="flex justify-start" id="loadingMsg"><div class="msg-ai max-w-2xl rounded-2xl px-4 py-3 text-sm">分析中...</div></div>`);
+  area.scrollTop = area.scrollHeight;
+  try {
+    const res = await api("/api/ask", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({question: q})});
+    document.getElementById("loadingMsg")?.remove();
+    let answer = res.answer;
+    if (res.need_review && res.review) answer += `\n\n⚠️ 需要审批：${res.review.action}（${res.review.approver}）`;
+    area.insertAdjacentHTML("beforeend", `
+      <div class="flex justify-start flex-col items-start gap-1">
+        <div class="msg-ai max-w-2xl rounded-2xl px-4 py-3 text-sm whitespace-pre-line">${answer}</div>
+        <div class="flex gap-2 text-xs opacity-60 hover:opacity-100">
+          <button class="feedback-btn px-2 py-1 rounded hover:bg-green-100" data-rating="good">👍 有用</button>
+          <button class="feedback-btn px-2 py-1 rounded hover:bg-red-100" data-rating="bad">👎 没用</button>
+        </div>
+      </div>`);
+    const buttons = area.querySelectorAll(".feedback-btn");
+    buttons.forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await api("/api/feedback", {method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({scene: currentPage, question: q, answer: answer, rating: btn.dataset.rating})});
+          btn.textContent = "✓ 已反馈";
+          btn.disabled = true;
+        } catch(e) {}
+      };
+    });
+  } catch(e) {
+    document.getElementById("loadingMsg")?.remove();
+    area.insertAdjacentHTML("beforeend", `<div class="flex justify-start"><div class="msg-ai max-w-2xl rounded-2xl px-4 py-3 text-sm">❌ ${e.message}</div></div>`);
+  }
+  area.scrollTop = area.scrollHeight;
+}
+
+// ═══════ 其他页面 ═══════
+function renderDashboardPage() {
+  return `
+    <header class="bg-white border-b border-slate-200 px-8 py-4">
+      <h1 class="text-xl font-bold text-slate-800">🏠 首页总览</h1>
+      <p class="text-sm text-slate-500 mt-1">全厂关键指标，一屏掌握</p>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8">
+      <div id="dashboardCards" class="grid grid-cols-3 gap-4 mb-6"></div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border p-5">
+          <div class="font-medium text-slate-800 mb-3">⚡ 快捷操作</div>
+          <div class="space-y-2">
+            <button class="w-full text-left px-4 py-2 bg-blue-50 hover:bg-blue-100 rounded-lg text-sm" onclick="navTo('daily')">📊 看今日生产日报</button>
+            <button class="w-full text-left px-4 py-2 bg-blue-50 hover:bg-blue-100 rounded-lg text-sm" onclick="navTo('equipment')">🔧 查设备报警</button>
+            <button class="w-full text-left px-4 py-2 bg-blue-50 hover:bg-blue-100 rounded-lg text-sm" onclick="navTo('quality')">🔍 查质量追溯</button>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl border p-5">
+          <div class="font-medium text-slate-800 mb-3">📈 系统状态</div>
+          <div id="systemStatus" class="text-sm text-slate-600 space-y-1"></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function bindDashboardEvents() {
+  try {
+    const d = await api("/api/dashboard");
+    const cards = [
+      {label: "订单完成率", value: d.order_completion_rate + "%", color: "blue", sub: `${d.order_total}个订单`},
+      {label: "设备运行率", value: d.equip_running_rate + "%", color: "green", sub: `${d.alarm_count}台报警`},
+      {label: "质量合格率", value: d.quality_pass_rate + "%", color: "blue", sub: "检验批次合格率"},
+      {label: "缺料预警", value: d.low_stock_count + "项", color: "amber", sub: "低于安全库存"},
+      {label: "待审批", value: d.pending_approval + "条", color: "red", sub: "需处理"},
+    ];
+    document.getElementById("dashboardCards").innerHTML = cards.map(c => {
+      const bg = c.color === "green" ? "bg-green-50 border-green-200" : (c.color === "red" ? "bg-red-50 border-red-200" : (c.color === "amber" ? "bg-amber-50 border-amber-200" : "bg-blue-50 border-blue-200"));
+      const text = c.color === "green" ? "text-green-700" : (c.color === "red" ? "text-red-700" : (c.color === "amber" ? "text-amber-700" : "text-blue-700"));
+      return `<div class="border rounded-xl p-5 ${bg}">
+        <div class="text-sm text-slate-500">${c.label}</div>
+        <div class="text-3xl font-bold ${text} mt-1">${c.value}</div>
+        <div class="text-xs text-slate-500 mt-1">${c.sub}</div>
+      </div>`;
+    }).join("");
+  } catch(e) {}
+  // 系统状态
+  try {
+    const stats = await api("/api/feedback/stats");
+    document.getElementById("systemStatus").innerHTML = `
+      <div>已收到反馈：${stats.total}条</div>
+      <div>👍 认可：${stats.good}条 · 👎 不认可：${stats.bad}条</div>
+      <div class="text-xs text-slate-400 mt-2">系统正在学习你的使用习惯，越用越准</div>`;
+  } catch(e) {}
+}
+
+function navTo(page) { currentPage = page; renderMain(); }
+
+function renderNotificationsPage() {
+  return `
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-bold text-slate-800">🔔 消息通知</h1>
+      </div>
+      <button id="readAllBtn" class="text-sm text-blue-600 hover:underline">全部标为已读</button>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8">
+      <div id="notifList" class="space-y-3 max-w-2xl"></div>
+    </div>`;
+}
+
+async function bindNotificationsEvents() {
+  await loadNotifList();
+  document.getElementById("readAllBtn").onclick = async () => {
+    await api("/api/notifications/read-all", {method:"POST"});
+    loadNotifList();
+    updateNotifBadge();
+  };
+}
+
+async function loadNotifList() {
+  try {
+    const list = await api("/api/notifications");
+    const el = document.getElementById("notifList");
+    if (!list.length) { el.innerHTML = `<div class="text-center text-slate-400 py-20">✅ 暂无通知</div>`; return; }
+    el.innerHTML = list.map(n => {
+      const color = n.type === "alarm" ? "red" : (n.type === "approval" ? "amber" : "blue");
+      const bg = color === "red" ? "border-red-200" : (color === "amber" ? "border-amber-200" : "border-blue-200");
+      const opacity = n.read ? "opacity-60 bg-slate-50" : "bg-white";
+      return `<div class="border rounded-xl p-4 ${bg} ${opacity} cursor-pointer hover:shadow-sm" onclick="markOneRead('${n.id}')">
+        <div class="flex items-center justify-between">
+          <div class="font-medium">${n.title} ${n.read ? '<span class="text-xs text-slate-400 font-normal">已读</span>' : '<span class="text-xs text-blue-500 font-normal">未读</span>'}</div>
+          ${n.read ? "" : '<div class="w-2 h-2 rounded-full bg-blue-500"></div>'}
+        </div>
+        <div class="text-sm text-slate-600 mt-1">${n.desc}</div>
+        <div class="text-xs text-slate-400 mt-1">${n.time}</div>
+      </div>`;
+    }).join("");
+  } catch(e) {}
+}
+
+async function markOneRead(id) {
+  await api(`/api/notifications/${id}/read`, {method:"POST"});
+  loadNotifList();
+  updateNotifBadge();
+}
+
+function renderUploadPage() { return `
+  <header class="bg-white border-b px-8 py-4">
+    <h1 class="text-xl font-bold">📁 数据接入</h1>
+    <p class="text-sm text-slate-500 mt-1">系统已内置示例数据可直接演示。接入真实数据后自动切换，不影响现有功能。</p>
+  </header>
+  <div class="flex-1 overflow-y-auto p-8">
+    <div id="dataStatus" class="mb-6"></div>
+    <h3 class="text-sm font-medium text-slate-700 mb-3">数据表上传（CSV/Excel）</h3>
+    <div id="tableList" class="space-y-3 max-w-4xl"></div>
+  </div>`; }
+
+async function bindUploadEvents() {
+  // 先渲染接入状态总览
+  try {
+    const status = await api("/api/data-status");
+    document.getElementById("dataStatus").innerHTML = `
+      <div class="bg-white rounded-xl border p-5">
+        <div class="font-medium text-slate-800 mb-3">数据源接入总览</div>
+        <div class="grid grid-cols-2 gap-3">
+          ${status.map(d => {
+            const pct = d.real > 0 ? Math.round(d.real / d.total * 100) : 0;
+            const color = d.real === d.total ? "green" : (d.real > 0 ? "amber" : "slate");
+            return `<div class="border rounded-lg p-3">
+              <div class="text-sm font-medium ${color === "green" ? "text-green-700" : (color === "amber" ? "text-amber-700" : "text-slate-600")}">
+                ${d.domain}
+              </div>
+              <div class="text-xs text-slate-500 mt-1">${d.name}</div>
+              <div class="text-xs mt-2">
+                ${d.real === d.total ? '✅ 全部接入' : (d.real > 0 ? `⚠ ${d.real}/${d.total} 已接入` : '⏳ 未接入（示例数据）')}
+              </div>
+            </div>`;
+          }).join("")}
+        </div>
+      </div>`;
+  } catch(e) {}
+  // 再渲染上传列表
+  const list = await api("/api/tables");
+  document.getElementById("tableList").innerHTML = list.map(t => `
+    <div class="bg-white rounded-xl border p-4 flex items-center gap-4">
+      <div class="flex-1">
+        <div class="font-medium">${t.key}</div>
+        <div class="text-sm text-slate-500">${t.description}</div>
+        <div class="text-xs text-slate-400 mt-1">字段：${t.columns.join(" / ")}</div>
+      </div>
+      ${t.uploaded ? `<span class="text-green-600 text-sm bg-green-50 px-3 py-1 rounded-full">✅ ${t.rows}行</span>` : `<span class="text-amber-600 text-sm bg-amber-50 px-3 py-1 rounded-full">示例</span>`}
+      <label class="text-sm bg-blue-600 text-white px-4 py-1.5 rounded-lg cursor-pointer">
+        上传<input type="file" hidden onchange="uploadFile('${t.key}', this)">
+      </label>
+      <a href="/api/template/${t.key}" class="text-xs text-blue-600 hover:underline">下载模板</a>
+    </div>`).join("");
+}
+async function uploadFile(k, input) {
+  const fd = new FormData(); fd.append("file", input.files[0]);
+  try { await api(`/api/upload/${k}`, {method:"POST", body: fd}); alert("上传成功"); bindUploadEvents(); } catch(e) { alert(e.message); }
+}
+
+function renderApprovalPage() { return `<header class="bg-white border-b px-8 py-4"><h1 class="text-xl font-bold">📋 待审批</h1></header><div class="flex-1 overflow-y-auto p-8"><div id="approvalList" class="space-y-3 max-w-3xl"></div></div>`; }
+async function bindApprovalEvents() {
+  const list = await api("/api/pending");
+  const el = document.getElementById("approvalList");
+  if (!list.length) { el.innerHTML = `<div class="text-center text-slate-400 py-20">✅ 无待审批</div>`; return; }
+  el.innerHTML = list.map(r => `<div class="bg-white rounded-xl border border-red-200 p-5">
+    <div class="font-bold">⚠ ${r.action}</div><div class="text-sm text-slate-500">${r.approver}</div>
+    <div class="flex gap-2 mt-3"><button class="bg-green-600 text-white px-4 py-2 rounded text-sm" onclick="doApprove('${r.id}')">批准</button><button class="bg-slate-200 px-4 py-2 rounded text-sm" onclick="doReject('${r.id}')">驳回</button></div></div>`).join("");
+}
+async function doApprove(id) { await api(`/api/approve/${id}?approver=当前用户`, {method:"POST"}); bindApprovalEvents(); updateApprovalBadge(); }
+async function doReject(id) { await api(`/api/reject/${id}?approver=当前用户`, {method:"POST"}); bindApprovalEvents(); updateApprovalBadge(); }
+
+function renderAuditPage() { return `<header class="bg-white border-b px-8 py-4"><h1 class="text-xl font-bold">📝 审计日志</h1></header><div class="flex-1 overflow-y-auto p-8"><div id="auditList" class="space-y-3 max-w-4xl"></div></div>`; }
+async function bindAuditEvents() {
+  const logs = await api("/api/audit");
+  document.getElementById("auditList").innerHTML = logs.map(log => `<div class="bg-white rounded-xl border"><div class="px-5 py-3 border-b font-medium">📄 ${log.file}</div><div class="p-5 text-xs font-mono">${log.entries.map(e=>`<div>[${e.timestamp}] ${e.stage}: ${e.action}</div>`).join("")}</div></div>`).join("");
+}
+
+function renderRulesPage() { return `<header class="bg-white border-b px-8 py-4"><h1 class="text-xl font-bold">📚 知识规则</h1></header><div class="flex-1 overflow-y-auto p-8"><div id="rulesList" class="space-y-3 max-w-3xl"></div></div>`; }
+async function bindRulesEvents() {
+  const list = await api("/api/rules");
+  document.getElementById("rulesList").innerHTML = list.map(r => `<div class="bg-white rounded-xl border p-4"><div class="font-medium">📖 ${r.topic}</div><div class="text-xs text-slate-500 mt-1">v${r.version} · ${r.approved_by}</div></div>`).join("");
+}
+
+function renderUsersPage() {
+  return `
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-bold text-slate-800">👥 用户管理</h1>
+        <p class="text-sm text-slate-500 mt-1">添加部门账号、分配角色、重置密码</p>
+      </div>
+      <button id="addUserBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm">+ 添加用户</button>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8">
+      <div id="userList" class="space-y-3 max-w-4xl"></div>
+    </div>
+    <div id="userModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+      <div class="bg-white rounded-2xl p-6 w-96">
+        <h3 class="text-lg font-bold mb-4" id="modalTitle">添加用户</h3>
+        <div class="space-y-3">
+          <input id="userName" type="text" placeholder="姓名（显示名）" class="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm">
+          <input id="userAccount" type="text" placeholder="登录账号（英文/数字）" class="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm">
+          <input id="userPwd" type="password" placeholder="初始密码" class="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm">
+          <select id="userRole" class="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm">
+            <option value="finance">财务</option>
+            <option value="sales">销售</option>
+            <option value="production">生产</option>
+            <option value="quality">质量</option>
+            <option value="manager">厂长/管理者</option>
+            <option value="admin">系统管理员</option>
+          </select>
+          <input id="userDept" type="text" placeholder="部门（如：财务部）" class="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm">
+        </div>
+        <div class="flex gap-2 mt-4">
+          <button id="saveUserBtn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm">保存</button>
+          <button id="cancelUserBtn" class="flex-1 bg-slate-200 hover:bg-slate-300 py-2 rounded-lg text-sm">取消</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function bindUsersEvents() {
+  await loadUserList();
+  document.getElementById("addUserBtn").onclick = () => {
+    document.getElementById("modalTitle").textContent = "添加用户";
+    document.getElementById("userModal").classList.remove("hidden");
+    document.getElementById("userModal").classList.add("flex");
+  };
+  document.getElementById("cancelUserBtn").onclick = closeModal;
+  document.getElementById("saveUserBtn").onclick = saveUser;
+}
+
+function closeModal() {
+  document.getElementById("userModal").classList.add("hidden");
+  document.getElementById("userModal").classList.remove("flex");
+}
+
+async function loadUserList() {
+  try {
+    const list = await api("/api/users");
+    document.getElementById("userList").innerHTML = list.map(u => `
+      <div class="bg-white rounded-xl border p-4 flex items-center gap-4">
+        <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">${u.display_name[0]}</div>
+        <div class="flex-1">
+          <div class="font-medium">${u.display_name} <span class="text-xs text-slate-400 ml-2">@${u.username}</span></div>
+          <div class="text-sm text-slate-500">${u.department || "未分配部门"} · ${u.role_name}</div>
+        </div>
+        <button onclick="resetPwd(${u.id}, '${u.username}')" class="text-xs bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg">重置密码</button>
+        <button onclick="delUser(${u.id}, '${u.display_name}')" class="text-xs bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded-lg">删除</button>
+      </div>`).join("");
+  } catch(e) { alert(e.message); }
+}
+
+async function saveUser() {
+  const name = document.getElementById("userName").value.trim();
+  const account = document.getElementById("userAccount").value.trim();
+  const pwd = document.getElementById("userPwd").value;
+  const role = document.getElementById("userRole").value;
+  const dept = document.getElementById("userDept").value.trim();
+  if (!name || !account || !pwd) { alert("请填完整"); return; }
+  try {
+    await api("/api/users", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({username: account, password: pwd, display_name: name, role: role, department: dept})});
+    closeModal();
+    loadUserList();
+  } catch(e) { alert(e.message); }
+}
+
+async function resetPwd(id, name) {
+  const pwd = prompt(`给 ${name} 设置新密码：`);
+  if (!pwd) return;
+  try {
+    await api(`/api/users/${id}/reset-password`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({new_password: pwd})});
+    alert("密码已重置");
+  } catch(e) { alert(e.message); }
+}
+
+async function delUser(id, name) {
+  if (!confirm(`确定删除 ${name}？`)) return;
+  try {
+    await api(`/api/users/${id}`, {method:"DELETE"});
+    loadUserList();
+  } catch(e) { alert(e.message); }
+}
+
+function renderModelsPage() {
+  return `
+    <header class="bg-white border-b border-slate-200 px-8 py-4">
+      <h1 class="text-xl font-bold text-slate-800">🧠 模型配置</h1>
+      <p class="text-sm text-slate-500 mt-1">每个部门用不同等级的模型——简单任务用轻量模型省钱，复杂任务用重型模型保准</p>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8">
+      <div id="modelCards" class="grid grid-cols-2 gap-4 mb-6"></div>
+      <div id="levelInfo" class="bg-white rounded-xl border p-5"></div>
+    </div>`;
+}
+
+async function bindModelsEvents() {
+  try {
+    const list = await api("/api/model-config");
+    document.getElementById("modelCards").innerHTML = list.map(m => {
+      const levelColor = m.model_level === "heavy" ? "purple" : (m.model_level === "standard" ? "blue" : "green");
+      const bg = levelColor === "purple" ? "bg-purple-50 border-purple-200" : (levelColor === "blue" ? "bg-blue-50 border-blue-200" : "bg-green-50 border-green-200");
+      const text = levelColor === "purple" ? "text-purple-700" : (levelColor === "blue" ? "text-blue-700" : "text-green-700");
+      return `<div class="border rounded-xl p-5 ${bg}">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-bold text-slate-800">${m.department || m.scene}</div>
+          <span class="text-xs px-2 py-1 rounded-full bg-white ${text}">${m.level_name}</span>
+        </div>
+        <div class="text-sm text-slate-600 mb-3">${m.description}</div>
+        <div class="flex items-center gap-2">
+          <label class="text-xs text-slate-500">模型等级：</label>
+          <select onchange="changeLevel('${m.scene}', this.value)" class="text-sm border rounded-lg px-2 py-1 bg-white">
+            <option value="light" ${m.model_level==='light'?'selected':''}>⚡ 轻量（快/便宜）</option>
+            <option value="standard" ${m.model_level==='standard'?'selected':''}>⚖️ 标准（平衡）</option>
+            <option value="heavy" ${m.model_level==='heavy'?'selected':''}>🧠 重型（准/贵）</option>
+          </select>
+          <span class="text-xs text-slate-400 ml-auto">${m.speed} · ${m.cost}</span>
+        </div>
+      </div>`;
+    }).join("");
+
+    // 模型等级说明
+    const levels = await api("/api/model-levels");
+    document.getElementById("levelInfo").innerHTML = `
+      <div class="font-medium text-slate-800 mb-3">💡 模型等级说明</div>
+      <div class="grid grid-cols-3 gap-4">
+        ${Object.entries(levels).map(([k, v]) => `
+          <div class="border rounded-lg p-3">
+            <div class="font-medium">${v.name}</div>
+            <div class="text-xs text-slate-500 mt-1">${v.description}</div>
+            <div class="text-xs text-slate-400 mt-2">速度：${v.speed} · 成本：${v.cost}</div>
+          </div>`).join("")}
+      </div>`;
+  } catch(e) { alert(e.message); }
+}
+
+async function changeLevel(scene, level) {
+  try {
+    await api(`/api/model-config/${scene}`, {method:"PUT", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({model_level: level})});
+    bindModelsEvents();
+  } catch(e) { alert(e.message); }
+}
+
+function renderGovernancePage() {
+  return `
+    <header class="bg-white border-b border-slate-200 px-8 py-4">
+      <h1 class="text-xl font-bold text-slate-800">📊 数据治理</h1>
+      <p class="text-sm text-slate-500 mt-1">FDE第二层：数据质量 + 字典统一 + 血缘追踪</p>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8">
+      <div id="govCards" class="grid grid-cols-3 gap-4 mb-6"></div>
+      <div class="bg-white rounded-xl border p-5 mb-4">
+        <div class="font-medium text-slate-800 mb-3">⚠️ 数据质量问题</div>
+        <div id="govIssues" class="space-y-2"></div>
+      </div>
+      <div class="bg-white rounded-xl border p-5">
+        <div class="font-medium text-slate-800 mb-3">🔗 数据血缘</div>
+        <div id="govLineage" class="space-y-2 text-sm text-slate-600"></div>
+      </div>
+    </div>`;
+}
+
+async function bindGovernanceEvents() {
+  try {
+    const r = await api("/api/governance/report");
+    document.getElementById("govCards").innerHTML = `
+      <div class="border rounded-xl p-4 ${r.high > 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}">
+        <div class="text-sm text-slate-500">高优先级问题</div>
+        <div class="text-2xl font-bold ${r.high > 0 ? 'text-red-600' : 'text-green-600'}">${r.high}</div>
+      </div>
+      <div class="border rounded-xl p-4 ${r.medium > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}">
+        <div class="text-sm text-slate-500">中优先级问题</div>
+        <div class="text-2xl font-bold ${r.medium > 0 ? 'text-amber-600' : 'text-green-600'}">${r.medium}</div>
+      </div>
+      <div class="border rounded-xl p-4 bg-blue-50 border-blue-200">
+        <div class="text-sm text-slate-500">血缘记录</div>
+        <div class="text-2xl font-bold text-blue-600">${r.lineage.length}</div>
+      </div>`;
+
+    if (r.issues.length) {
+      document.getElementById("govIssues").innerHTML = r.issues.map(i => `
+        <div class="border rounded-lg p-3 ${i.severity==='high'?'border-red-200 bg-red-50':i.severity==='medium'?'border-amber-200 bg-amber-50':'border-slate-200'}">
+          <span class="text-xs px-2 py-0.5 rounded-full ${i.severity==='high'?'bg-red-200 text-red-800':i.severity==='medium'?'bg-amber-200 text-amber-800':'bg-slate-200 text-slate-600'}">${i.severity}</span>
+          <span class="text-sm ml-2">${i.message}</span>
+        </div>`).join("");
+    } else {
+      document.getElementById("govIssues").innerHTML = `<div class="text-center text-green-600 py-4">✅ 数据质量良好，无问题</div>`;
+    }
+
+    if (r.lineage.length) {
+      document.getElementById("govLineage").innerHTML = r.lineage.map(l => `
+        <div class="border rounded-lg p-3">
+          <div><strong>${l.source}</strong> — ${l.rows}行数据</div>
+          <div class="text-xs text-slate-400 mt-1">原始字段：${l.fields.join("、")}</div>
+          <div class="text-xs text-slate-400">标准化后：${l.normalized_fields.join("、")}</div>
+        </div>`).join("");
+    } else {
+      document.getElementById("govLineage").innerHTML = `<div class="text-slate-400">暂无血缘记录（取数后自动记录）</div>`;
+    }
+  } catch(e) { alert(e.message); }
+}
+
+function renderEvolutionPage() {
+  return `
+    <header class="bg-white border-b border-slate-200 px-8 py-4">
+      <h1 class="text-xl font-bold text-slate-800">🔄 自进化</h1>
+      <p class="text-sm text-slate-500 mt-1">FDE第五层：反馈学习 → 规则优化 → 越用越准</p>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8">
+      <div id="evoCards" class="grid grid-cols-4 gap-4 mb-6"></div>
+      <div class="bg-white rounded-xl border p-5 mb-4">
+        <div class="font-medium text-slate-800 mb-3">💡 优化建议</div>
+        <div id="evoSuggestions" class="space-y-2"></div>
+      </div>
+      <div class="bg-white rounded-xl border p-5">
+        <div class="font-medium text-slate-800 mb-3">📈 系统成熟度</div>
+        <div id="evoMaturity" class="text-sm text-slate-600"></div>
+      </div>
+    </div>`;
+}
+
+function renderSettingsPage() {
+  return `
+    <header class="bg-white border-b border-slate-200 px-8 py-4">
+      <h1 class="text-xl font-bold text-slate-800">⚙️ 个人设置</h1>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8">
+      <div class="max-w-2xl space-y-6">
+        <div class="bg-white rounded-xl border p-5">
+          <div class="font-medium text-slate-800 mb-4">👤 账号信息</div>
+          <div class="space-y-2 text-sm">
+            <div><span class="text-slate-500">用户名：</span>${currentUser.username}</div>
+            <div><span class="text-slate-500">姓名：</span>${currentUser.display_name}</div>
+            <div><span class="text-slate-500">角色：</span>${currentUser.role_name}</div>
+            <div><span class="text-slate-500">部门：</span>${currentUser.department || "-"}</div>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl border p-5">
+          <div class="font-medium text-slate-800 mb-4">🔑 修改密码</div>
+          <div class="space-y-3 max-w-sm">
+            <input id="oldPwd" type="password" placeholder="旧密码" class="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm">
+            <input id="newPwd" type="password" placeholder="新密码（至少6位）" class="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm">
+            <input id="confirmPwd" type="password" placeholder="确认新密码" class="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm">
+            <button onclick="changePwd()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm">修改密码</button>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl border p-5">
+          <div class="font-medium text-slate-800 mb-4">ℹ️ 系统信息</div>
+          <div id="sysInfo" class="text-sm text-slate-600 space-y-1"></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderOpsPage() {
+  return `
+    <header class="bg-white border-b border-slate-200 px-8 py-4">
+      <h1 class="text-xl font-bold text-slate-800">🛠️ 运维管理</h1>
+      <p class="text-sm text-slate-500 mt-1">版本回退、数据备份、错误监控</p>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8">
+      <div id="opsStatus" class="grid grid-cols-3 gap-4 mb-6"></div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="font-medium text-slate-800">💾 快照管理（版本回退）</div>
+            <button onclick="createSnapshot()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm">创建快照</button>
+          </div>
+          <div id="snapshotList" class="space-y-2 max-h-64 overflow-y-auto"></div>
+        </div>
+        <div class="bg-white rounded-xl border p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="font-medium text-slate-800">⚠️ 错误日志</div>
+            <button onclick="refreshErrors()" class="text-sm text-blue-600 hover:underline">刷新</button>
+          </div>
+          <div id="errorList" class="space-y-2 max-h-64 overflow-y-auto"></div>
+        </div>
+      </div>
+      <div class="mt-4 bg-white rounded-xl border p-5">
+        <div class="font-medium text-slate-800 mb-3">💾 数据备份</div>
+        <div class="flex gap-2">
+          <button onclick="backupDb()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm">备份数据库</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function bindOpsEvents() {
+  try {
+    const r = await api("/api/ops/status");
+    document.getElementById("opsStatus").innerHTML = `
+      <div class="border rounded-xl p-4 bg-blue-50 border-blue-200">
+        <div class="text-sm text-slate-500">系统版本</div>
+        <div class="text-xl font-bold text-blue-600">v${r.version}</div>
+      </div>
+      <div class="border rounded-xl p-4 bg-green-50 border-green-200">
+        <div class="text-sm text-slate-500">运行时间</div>
+        <div class="text-xl font-bold text-green-600">${r.uptime}</div>
+      </div>
+      <div class="border rounded-xl p-4 bg-amber-50 border-amber-200">
+        <div class="text-sm text-slate-500">最近错误</div>
+        <div class="text-xl font-bold text-amber-600">${r.recent_errors}条</div>
+      </div>`;
+
+    // 快照列表
+    const snaps = await api("/api/ops/snapshots");
+    if (snaps.length) {
+      document.getElementById("snapshotList").innerHTML = snaps.map(s => `
+        <div class="border rounded-lg p-3 flex items-center justify-between">
+          <div>
+            <div class="text-sm font-medium">${s.name}</div>
+            <div class="text-xs text-slate-400">${s.time}</div>
+          </div>
+          <button onclick="rollback('${s.name}')" class="text-xs bg-amber-100 hover:bg-amber-200 px-3 py-1 rounded-lg">回退到此版本</button>
+        </div>`).join("");
+    } else {
+      document.getElementById("snapshotList").innerHTML = `<div class="text-center text-slate-400 text-sm py-4">暂无快照</div>`;
+    }
+
+    // 错误日志
+    await refreshErrors();
+  } catch(e) { alert(e.message); }
+}
+
+async function refreshErrors() {
+  try {
+    const errors = await api("/api/ops/errors");
+    if (errors.length) {
+      document.getElementById("errorList").innerHTML = errors.map(e => `
+        <div class="border rounded-lg p-3 border-red-200 bg-red-50">
+          <div class="text-xs text-red-600">${e.component}</div>
+          <div class="text-sm text-slate-700 mt-1">${e.error}</div>
+          <div class="text-xs text-slate-400 mt-1">${e.time}</div>
+        </div>`).join("");
+    } else {
+      document.getElementById("errorList").innerHTML = `<div class="text-center text-green-600 text-sm py-4">✅ 无错误</div>`;
+    }
+  } catch(e) {}
+}
+
+async function createSnapshot() {
+  try {
+    const r = await api("/api/ops/snapshot", {method:"POST"});
+    toast("快照创建成功");
+    bindOpsEvents();
+  } catch(e) { toast(e.message, "error"); }
+}
+
+async function rollback(name) {
+  if (!confirm(`确定回退到 ${name}？当前配置会被覆盖`)) return;
+  try {
+    const r = await api(`/api/ops/rollback/${name}`, {method:"POST"});
+    toast("回退成功，请刷新页面");
+    bindOpsEvents();
+  } catch(e) { toast(e.message, "error"); }
+}
+
+async function backupDb() {
+  try {
+    const r = await api("/api/ops/backup", {method:"POST"});
+    toast("数据库备份成功");
+  } catch(e) { toast(e.message, "error"); }
+}
+
+async function bindSettingsEvents() {
+  try {
+    const r = await fetch("/api/health");
+    const d = await r.json();
+    document.getElementById("sysInfo").innerHTML = `
+      <div>系统版本：v${d.version}</div>
+      <div>数据库：${d.database === "mysql" ? "MySQL（生产）" : "SQLite（演示）"}</div>
+      <div>大模型：${d.llm_enabled ? "✅ 已接入" : "❌ 未配置"}</div>
+      <div>运行状态：✅ 正常</div>`;
+  } catch(e) {}
+}
+
+async function changePwd() {
+  const old = document.getElementById("oldPwd").value;
+  const p1 = document.getElementById("newPwd").value;
+  const p2 = document.getElementById("confirmPwd").value;
+  if (!old || !p1) { toast("请填完整", "error"); return; }
+  if (p1 !== p2) { toast("两次密码不一致", "error"); return; }
+  if (p1.length < 6) { toast("密码至少6位", "error"); return; }
+  try {
+    await api("/api/change-password", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({old_password: old, new_password: p1})});
+    toast("密码修改成功");
+    document.getElementById("oldPwd").value = "";
+    document.getElementById("newPwd").value = "";
+    document.getElementById("confirmPwd").value = "";
+  } catch(e) { toast(e.message, "error"); }
+}
+
+async function bindEvolutionEvents() {
+  try {
+    const r = await api("/api/evolution/report");
+    const m = r.metrics;
+    document.getElementById("evoCards").innerHTML = `
+      <div class="border rounded-xl p-4 bg-blue-50 border-blue-200">
+        <div class="text-sm text-slate-500">总反馈数</div>
+        <div class="text-2xl font-bold text-blue-600">${m.total_feedback}</div>
+      </div>
+      <div class="border rounded-xl p-4 bg-green-50 border-green-200">
+        <div class="text-sm text-slate-500">👍 好评</div>
+        <div class="text-2xl font-bold text-green-600">${m.good_count}</div>
+      </div>
+      <div class="border rounded-xl p-4 bg-red-50 border-red-200">
+        <div class="text-sm text-slate-500">👎 差评</div>
+        <div class="text-2xl font-bold text-red-600">${m.bad_count}</div>
+      </div>
+      <div class="border rounded-xl p-4 bg-purple-50 border-purple-200">
+        <div class="text-sm text-slate-500">满意度</div>
+        <div class="text-2xl font-bold text-purple-600">${(m.satisfaction_rate*100).toFixed(0)}%</div>
+      </div>`;
+
+    if (r.suggestions.length) {
+      document.getElementById("evoSuggestions").innerHTML = r.suggestions.map(s => `
+        <div class="border rounded-lg p-3 ${s.severity==='high'?'border-red-200 bg-red-50':s.severity==='low'?'border-green-200 bg-green-50':'border-amber-200 bg-amber-50'}">
+          <div class="font-medium">${s.message}</div>
+          <div class="text-sm text-slate-600 mt-1">👉 ${s.action}</div>
+        </div>`).join("");
+    } else {
+      document.getElementById("evoSuggestions").innerHTML = `<div class="text-center text-slate-400 py-4">暂无建议</div>`;
+    }
+
+    document.getElementById("evoMaturity").innerHTML = `
+      <div class="text-lg font-bold">${m.maturity}</div>
+      <div class="text-sm text-slate-500 mt-1">${m.maturity_desc}</div>
+      <div class="text-xs text-slate-400 mt-2">能自进化：${m.can_self_evolve ? '✅ 是' : '❌ 反馈数据不足'}</div>`;
+  } catch(e) { alert(e.message); }
+}
+
+// ═══════ 主渲染 ═══════
+function render() {
+  const app = document.getElementById("app");
+  if (!token || !currentUser) {
+    app.innerHTML = renderLogin();
+    document.getElementById("loginBtn").onclick = async () => {
+  const btn = document.getElementById("loginBtn");
+  btn.classList.add("loading");
+  btn.innerHTML = '<span class="spinner"></span> 登录中...';
+  await doLogin();
+  btn.classList.remove("loading");
+  btn.textContent = "登录";
+};
+    document.getElementById("loginPwd").onkeydown = e => { if(e.key==="Enter") doLogin(); };
+  } else {
+    app.innerHTML = renderApp();
+    renderMain();
+    document.querySelectorAll(".sidebar-item").forEach(el => {
+      el.onclick = e => { e.preventDefault(); currentPage = el.dataset.page; renderMain(); };
+    });
+    document.getElementById("notifBtn").onclick = () => { currentPage = "notifications"; renderMain(); };
+    updateApprovalBadge();
+    updateNotifBadge();
+  }
+}
+
+async function updateApprovalBadge() {
+  try {
+    const list = await api("/api/pending");
+    const badge = document.getElementById("approvalBadge");
+    if (!badge) return;
+    if (list.length > 0) {
+      badge.textContent = list.length;
+      badge.classList.remove("hidden");
+    } else {
+      badge.classList.add("hidden");
+    }
+  } catch(e) {}
+}
+
+async function updateNotifBadge() {
+  try {
+    const list = await api("/api/notifications");
+    const unread = list.filter(n => !n.read).length;
+    const badge = document.getElementById("notifBadge");
+    if (!badge) return;
+    if (unread > 0) {
+      badge.textContent = unread;
+      badge.classList.remove("hidden");
+    } else {
+      badge.classList.add("hidden");
+    }
+  } catch(e) {}
+}
+
+render();
+</script>
+</body>
+</html>

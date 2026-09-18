@@ -1,0 +1,15 @@
+# 生产齐套欠料检查
+id: material_kitting
+name: 生产齐套欠料检查
+icon: 📋
+page_key: kitting
+description: 按BOM计算物料缺口，缺料预警提前知道
+triggers: [缺料, 齐套, 物料, 库存不够, 停线, 欠料, BOM]
+data_sources:
+  - PLM.bom
+  - ERP.inventory
+  - WMS.stock
+  - MES.work_orders
+risk_level: medium
+handler: material_kitting
+output_template: 缺口清单 + 紧急程度

@@ -1,0 +1,15 @@
+# 管理每日一页
+id: daily_briefing
+name: 管理每日一页
+icon: 📊
+page_key: daily
+description: 汇总全厂异常，按优先级排序，一页纸掌握全局
+triggers: [日报, 每天看, 老板, 异常, 盯什么, 每天问, 看不到]
+data_sources:
+  - MES.work_orders
+  - MES.shift_records
+  - SCADA.alarms
+  - QMS.defects
+risk_level: low
+handler: daily_briefing
+output_template: 优先级排序异常清单

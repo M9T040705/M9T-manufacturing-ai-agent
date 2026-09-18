@@ -1,0 +1,63 @@
+scenes:
+  reconciliation:
+    model_level: standard
+    department: 财务部
+    description: 三单匹配，规则明确，标准模型够用
+    auto_upgrade: true
+  delivery:
+    model_level: light
+    department: 销售部
+    description: 查库存+在制，算个交期，轻量模型就够
+    auto_upgrade: true
+  daily:
+    model_level: standard
+    department: 生产部
+    description: 汇总全厂异常，按优先级排序，需要标准分析能力
+    auto_upgrade: false
+  kitting:
+    model_level: light
+    department: 生产部
+    description: 按BOM算缺口，纯计算，轻量模型最快
+    auto_upgrade: false
+  equipment:
+    model_level: standard
+    department: 生产部
+    description: 报警汇总+维修建议，需要结合历史案例
+    auto_upgrade: true
+  quality:
+    model_level: heavy
+    department: 质量部
+    description: 批次全链路追溯+根因分析，最复杂的任务，必须重型模型
+    auto_upgrade: false
+model_levels:
+  light:
+    name: 轻量模型
+    description: 快速查询，直接返回数据结果
+    features:
+    - 直接查数据
+    - 简单格式化
+    - 不做深度分析
+    speed: 快（<1秒）
+    cost: 低
+  standard:
+    name: 标准模型
+    description: 业务规则匹配 + 生成建议
+    features:
+    - 查数据
+    - 匹配业务规则
+    - 生成初步建议
+    - 标注风险点
+    speed: 中（1-3秒）
+    cost: 中
+  heavy:
+    name: 重型模型
+    description: 深度分析 + 根因推理 + 历史案例
+    features:
+    - 查数据
+    - 匹配业务规则
+    - 根因分析
+    - 参考历史成功案例
+    - 生成完整报告
+    - 跨部门影响分析
+    speed: 慢（3-10秒）
+    cost: 高

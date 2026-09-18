@@ -1,0 +1,32 @@
+﻿# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+
+# 数据库和数据文件
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# 备份和日志
+backups/
+logs/
+
+# 配置（含API Key，不上传）
+config/llm.json
+config/db.json
+
+# 临时文件
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

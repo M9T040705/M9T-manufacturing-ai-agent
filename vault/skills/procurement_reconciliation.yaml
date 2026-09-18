@@ -1,0 +1,13 @@
+# 采购三单匹配对账
+id: procurement_reconciliation
+name: 采购三单匹配对账
+icon: 💰
+page_key: reconciliation
+description: 自动核对采购单/收货单/发票三单匹配，差异自动标红
+triggers: [对账, 发票, 付款, 财务, 采购单, 收货, 应付, 三单]
+data_sources:
+  - ERP.purchase_orders
+  - ERP.ap_invoices
+risk_level: low
+handler: procurement_reconciliation
+output_template: 异常列表 + 汇总统计

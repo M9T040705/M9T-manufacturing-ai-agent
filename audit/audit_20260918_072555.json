@@ -1,0 +1,55 @@
+[
+  {
+    "timestamp": "2026-09-18T07:25:55.031186",
+    "session_id": "20260918_072555",
+    "stage": "用户提问",
+    "action": "接收问题",
+    "actor": "agent",
+    "detail": {
+      "question": "这批客诉是哪一段出的？",
+      "user": "用户"
+    }
+  },
+  {
+    "timestamp": "2026-09-18T07:25:55.031204",
+    "session_id": "20260918_072555",
+    "stage": "意图识别",
+    "action": "识别业务意图",
+    "actor": "agent",
+    "detail": {
+      "intent": "quality_traceability"
+    }
+  },
+  {
+    "timestamp": "2026-09-18T07:25:55.031709",
+    "session_id": "20260918_072555",
+    "stage": "取数",
+    "action": "质量追溯数据",
+    "actor": "agent",
+    "detail": {
+      "inspections": 2,
+      "defects": 1
+    }
+  },
+  {
+    "timestamp": "2026-09-18T07:25:55.031801",
+    "session_id": "20260918_072555",
+    "stage": "人审",
+    "action": "高风险动作需审批: 召回/判责/对外质量回复",
+    "actor": "agent",
+    "detail": {
+      "request_id": "R-072555031764",
+      "approver": "质量负责人"
+    }
+  },
+  {
+    "timestamp": "2026-09-18T07:25:55.031805",
+    "session_id": "20260918_072555",
+    "stage": "交付",
+    "action": "返回结论",
+    "actor": "agent",
+    "detail": {
+      "answer": "🔍 质量批次追溯结果：\n\n📦 问题批次：B20260915-03（散热片C）\n   检验项：平面度，实测0.15（标准≤0.08）\n   📋 不良：平面度超差 45件\n   🏭 产线：二号线 | 设备：CNC-05 | 班次：夜班 | 操作：王师傅\n   🚚 已出库：1笔\n\n⚠ 以上为系统自动分析结果，召回/判责/对外回复需质量负责人确认。"
+    }
+  }
+]

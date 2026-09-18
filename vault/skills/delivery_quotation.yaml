@@ -1,0 +1,14 @@
+# 销售交期答复
+id: delivery_quotation
+name: 销售交期答复
+icon: 📦
+page_key: delivery
+description: 自动拉订单+库存+在制，给出建议交期+风险提示
+triggers: [交期, 交货, 什么时候能出, 客户催, 交不出, 延期, 承诺]
+data_sources:
+  - ERP.orders
+  - ERP.inventory
+  - MES.work_orders
+risk_level: medium
+handler: delivery_quotation
+output_template: 建议交期 + 风险提示

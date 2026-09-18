@@ -1,0 +1,13 @@
+# 设备点检维保
+id: equipment_maintenance
+name: 设备点检维保
+icon: 🔧
+page_key: equipment
+description: 报警自动汇总+维修经验建议，减少非计划停机
+triggers: [设备, 停机, 报警, 维修, 保养, 点检, 故障, CNC]
+data_sources:
+  - SCADA.equipment
+  - SCADA.alarms
+risk_level: medium
+handler: equipment_maintenance
+output_template: 报警清单 + 维保建议

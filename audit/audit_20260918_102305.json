@@ -1,0 +1,64 @@
+[
+  {
+    "timestamp": "2026-09-18T10:23:05.768831",
+    "session_id": "20260918_102305",
+    "stage": "用户提问",
+    "action": "接收问题",
+    "actor": "agent",
+    "detail": {
+      "question": "今天设备要盯什么？",
+      "user": "生产张工"
+    }
+  },
+  {
+    "timestamp": "2026-09-18T10:23:05.768886",
+    "session_id": "20260918_102305",
+    "stage": "意图识别",
+    "action": "识别业务意图",
+    "actor": "agent",
+    "detail": {
+      "intent": "equipment_maintenance"
+    }
+  },
+  {
+    "timestamp": "2026-09-18T10:23:05.769576",
+    "session_id": "20260918_102305",
+    "stage": "取数",
+    "action": "设备状态+报警记录",
+    "actor": "agent",
+    "detail": {
+      "equip_count": 3
+    }
+  },
+  {
+    "timestamp": "2026-09-18T10:23:05.769604",
+    "session_id": "20260918_102305",
+    "stage": "分析",
+    "action": "设备风险识别",
+    "actor": "agent",
+    "detail": {
+      "risk_count": 1
+    }
+  },
+  {
+    "timestamp": "2026-09-18T10:23:05.769827",
+    "session_id": "20260918_102305",
+    "stage": "人审",
+    "action": "高风险动作需审批: 停线/改排产/放行",
+    "actor": "agent",
+    "detail": {
+      "request_id": "R-102305769757",
+      "approver": "生产负责人"
+    }
+  },
+  {
+    "timestamp": "2026-09-18T10:23:05.769835",
+    "session_id": "20260918_102305",
+    "stage": "交付",
+    "action": "返回结论",
+    "actor": "agent",
+    "detail": {
+      "answer": "🔧 今日设备点检与维保建议：\n\n🔴 CNC-05（加工中心5号）— 高风险\n   运行时长：5800h | 上次保养：2026-07-15\n   报警：主轴温度偏高、润滑油位低\n\n💡 建议：高风险设备今日安排点检，维修方案由设备主管确认。"
+    }
+  }
+]

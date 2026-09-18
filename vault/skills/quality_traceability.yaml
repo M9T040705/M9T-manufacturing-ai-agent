@@ -1,0 +1,15 @@
+# 质量批次追溯
+id: quality_traceability
+name: 质量批次追溯
+icon: 🔍
+page_key: quality
+description: 批次全链路追溯，根因自动关联设备/人员/班次
+triggers: [质量, 客诉, 不良, 追溯, 批次, 不合格, 召回, 判责]
+data_sources:
+  - QMS.inspections
+  - QMS.defects
+  - MES.work_orders
+  - SCADA.equipment
+risk_level: high
+handler: quality_traceability
+output_template: 追溯链路 + 根因分析

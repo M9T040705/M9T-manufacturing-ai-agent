@@ -1,0 +1,50 @@
+# 工业AI Agent 系统配置
+system:
+  name: "制造业智能Agent平台"
+  version: "0.1.0-mvp"
+  mode: "mock"  # mock=模拟数据, live=真实系统接入
+
+# 高风险动作清单（必须人工审批，对应图5"哪些动作必须留给人审"）
+human_review_required:
+  - action: "对外承诺交期"
+    risk_level: high
+    approver: "销售负责人"
+  - action: "付款/折扣/退款"
+    risk_level: high
+    approver: "财务负责人"
+  - action: "停线/改排产/放行"
+    risk_level: high
+    approver: "生产负责人"
+  - action: "召回/判责/对外质量回复"
+    risk_level: high
+    approver: "质量负责人"
+  - action: "越权访问/敏感审批"
+    risk_level: critical
+    approver: "系统管理员"
+
+# 系统接入配置（MVP阶段用模拟数据，后续替换为真实API/数据库连接）
+data_sources:
+  ERP:
+    type: mock
+    description: "订单/库存/成本/采购订单/应付"
+  MES:
+    type: mock
+    description: "工单/报工/生产进度/批次"
+  WMS:
+    type: mock
+    description: "出入库/库位/批次"
+  QMS:
+    type: mock
+    description: "检验/不良/质量追溯"
+  PLM:
+    type: mock
+    description: "图纸/BOM/工艺"
+  SCADA:
+    type: mock
+    description: "设备状态/运行数据"
+
+# 企业信息（示例）
+enterprise:
+  name: "示例精密制造有限公司"
+  employees: 200
+  industry: "离散制造（机加工/装配）"

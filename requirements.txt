@@ -1,0 +1,4 @@
+# 工业AI Agent 落地 MVP 依赖
+streamlit>=1.30.0
+pandas>=2.0.0
+pyyaml>=6.0
