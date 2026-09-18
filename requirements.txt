@@ -1,4 +1,7 @@
-# 工业AI Agent 落地 MVP 依赖
-streamlit>=1.30.0
-pandas>=2.0.0
+﻿fastapi>=0.100.0
+uvicorn>=0.23.0
+requests>=2.31.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+openpyxl>=3.1.0
 pyyaml>=6.0

@@ -205,15 +205,22 @@ async def ask(req: AskRequest, user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/history/{scene}")
-async def get_history(scene: str):
-    """获取某场景的对话历史"""
+async def get_history(scene: str, user: dict = Depends(get_current_user)):
+    """获取某场景的对话历史（只有有权限的角色能看）"""
+    perms = state.user_permissions(user["role"])
+    # 管理员和厂长能看所有，其他角色只能看自己的
+    if user["role"] not in ["admin", "boss"] and scene not in perms["scenes"]:
+        raise HTTPException(403, "你没有权限查看这个场景的历史")
     return state.get_history(scene)
 
 
 @app.get("/api/pending")
-async def list_pending():
-    """待审批列表"""
-    pending = engine.review.pending_list()
+async def list_pending(user: dict = Depends(get_current_user)):
+    """待审批列表（只显示当前用户能审批的）"""
+    role = user["role"]
+    all_pending = engine.review.pending_list()
+    # 只显示需要当前角色审批的（管理员看全部）
+    pending = [r for r in all_pending if role == "admin" or r.approver_role == role]
     return [
         {
             "id": r.request_id,
@@ -227,23 +234,28 @@ async def list_pending():
 
 
 @app.post("/api/approve/{request_id}")
-async def approve(request_id: str, approver: str = "当前用户"):
-    r = engine.review.approve(request_id, approver)
+async def approve(request_id: str, user: dict = Depends(get_current_user)):
+    # 只有审批人角色能审批
+    if user["role"] not in ["admin", "boss"]:
+        raise HTTPException(403, "你没有审批权限")
+    r = engine.review.approve(request_id, user["username"])
     if r is None:
         raise HTTPException(404, "审批单不存在")
     return {"status": "approved", "id": r.request_id}
 
 
 @app.post("/api/reject/{request_id}")
-async def reject(request_id: str, approver: str = "当前用户"):
-    r = engine.review.reject(request_id, approver)
+async def reject(request_id: str, user: dict = Depends(get_current_user)):
+    if user["role"] not in ["admin", "boss"]:
+        raise HTTPException(403, "你没有审批权限")
+    r = engine.review.reject(request_id, user["username"])
     if r is None:
         raise HTTPException(404, "审批单不存在")
     return {"status": "rejected", "id": r.request_id}
 
 
 @app.get("/api/tables")
-async def list_tables():
+async def list_tables(user: dict = Depends(get_current_user)):
     """所有数据表状态"""
     uploaded = data_store.list_uploaded()
     tables = []
@@ -259,7 +271,7 @@ async def list_tables():
 
 
 @app.get("/api/data-status")
-async def data_status():
+async def data_status(user: dict = Depends(get_current_user)):
     """数据源接入状态总览：每个系统域接了几张表"""
     uploaded = data_store.list_uploaded()
     domains = [
@@ -433,13 +445,13 @@ async def diagnose(req: DiagnoseReq):
 
 # ── 知识规则管理 ─────────────────────────────
 @app.get("/api/rules")
-async def list_rules():
+async def list_rules(user: dict = Depends(get_current_user)):
     """列出所有规则及其版本"""
     return engine.kb.list_rules()
 
 
 @app.get("/api/skills")
-async def list_skills():
+async def list_skills(user: dict = Depends(get_current_user)):
     """列出所有技能插件（从yaml加载）"""
     return skill_registry.list_all()
 
@@ -526,27 +538,41 @@ async def dashboard(user: dict = Depends(get_current_user)):
 
 @app.get("/api/notifications")
 async def notifications(user: dict = Depends(get_current_user)):
-    """消息通知列表（带已读状态）"""
+    """消息通知列表（按角色过滤，带已读状态）"""
     import hashlib
     conn = engine.connector
+    role = user["role"]
+    perms = state.user_permissions(role)
     raw = []
-    machines = conn.query_scada("equipment")
-    for m in machines:
-        if m["status"] == "报警":
-            title = f"{m['equip_id']} 报警"
-            desc = ", ".join(m.get("alarm", []))
-            raw.append({"type": "alarm", "title": title, "desc": desc, "time": "现在"})
-    pending = engine.review.pending_list()
-    for p in pending:
-        title = f"待审批：{p.action}"
-        desc = f"需{p.approver_role}审批"
-        raw.append({"type": "approval", "title": title, "desc": desc, "time": "现在"})
-    inventory = conn.query_erp("inventory")
-    for i in inventory:
-        if i["stock_qty"] < i["safety_stock"]:
-            title = f"库存预警：{i['material']}"
-            desc = f"库存{i['stock_qty']}{i['unit']}，低于安全线{i['safety_stock']}"
-            raw.append({"type": "warning", "title": title, "desc": desc, "time": "现在"})
+
+    # 设备报警：只有生产、厂长、管理员能看到
+    if role in ["admin", "boss", "production"]:
+        machines = conn.query_scada("equipment")
+        for m in machines:
+            if m["status"] == "报警":
+                title = f"{m['equip_id']} 报警"
+                desc = ", ".join(m.get("alarm", []))
+                raw.append({"type": "alarm", "title": title, "desc": desc, "time": "现在"})
+
+    # 待审批：只有审批人角色能看到
+    if role in ["admin", "boss"]:
+        pending = engine.review.pending_list()
+        for p in pending:
+            # 只显示需要当前角色审批的
+            if role == "admin" or p["approver_role"] == role:
+                title = f"待审批：{p['action']}"
+                desc = f"需{p['approver_role']}审批"
+                raw.append({"type": "approval", "title": title, "desc": desc, "time": "现在"})
+
+    # 库存预警：生产、采购、厂长、管理员能看到
+    if role in ["admin", "boss", "production"]:
+        inventory = conn.query_erp("inventory")
+        for i in inventory:
+            if i["stock_qty"] < i["safety_stock"]:
+                title = f"库存预警：{i['material']}"
+                desc = f"库存{i['stock_qty']}{i['unit']}，低于安全线{i['safety_stock']}"
+                raw.append({"type": "warning", "title": title, "desc": desc, "time": "现在"})
+
     # 给每条通知生成唯一ID（基于内容hash）
     for n in raw:
         n["id"] = hashlib.md5(f"{n['type']}{n['title']}{n['desc']}".encode()).hexdigest()[:12]
