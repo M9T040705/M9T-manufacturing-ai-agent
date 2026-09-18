@@ -1,5 +1,7 @@
-﻿# 制造业AI Agent平台
-
+﻿# 制造业AI Agent平台?
+?
+![系统架构图](docs/architecture.png)?
+?
 工厂数字员工系统 —— 本地部署、内网可用、无需外网、越用越准。
 
 ## ✨ 功能特性
@@ -142,3 +144,4 @@ python run_tests.py
 ## 📄 License
 
 MIT
+
