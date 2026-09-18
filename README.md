@@ -1,8 +1,106 @@
-﻿# 制造业AI Agent平台?
-?
-![系统架构图](docs/architecture.png)?
-?
+﻿# 制造业AI Agent平台
+
 工厂数字员工系统 —— 本地部署、内网可用、无需外网、越用越准。
+
+## 📐 系统架构
+
+### 整体五层架构
+
+```mermaid
+graph TB
+    subgraph L5["第五层：自进化闭环"]
+        A1[反馈学习] --> A2[自动归纳规则] --> A3[回测验证] --> A4[越用越准]
+    end
+
+    subgraph L4["第四层：Agent决策引擎"]
+        B1[意图识别] --> B2[技能调度] --> B3[工具调用] --> B4[安全闸门]
+    end
+
+    subgraph L3["第三层：规则与知识库"]
+        C1[markdown规则库] --> C2[yaml技能插件] --> C3[热更新]
+    end
+
+    subgraph L2["第二层：数据治理"]
+        D1[质量校验] --> D2[字典映射] --> D3[血缘追踪]
+    end
+
+    subgraph L1["第一层：数据接入"]
+        E1[ERP] --> E2[MES] --> E3[SCADA] --> E4[Excel/CSV上传]
+    end
+
+    L5 --> L4 --> L3 --> L2 --> L1
+```
+
+### 一次请求的完整流程
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant GW as API网关
+    participant AU as 权限校验
+    participant RT as 意图识别
+    participant SK as 技能调度
+    participant KB as 知识库检索
+    participant LLM as 大模型路由
+    participant SC as 安全闸门
+    participant DB as 状态存储
+
+    U->>GW: 提问
+    GW->>AU: 校验登录+权限
+    AU-->>GW: 通过
+    GW->>RT: 识别意图
+    RT->>SK: 匹配技能
+    SK->>KB: 检索规则+数据
+    KB-->>SK: 返回上下文
+    SK->>LLM: 分级调用大模型
+    LLM-->>SK: 返回回答
+    SK->>SC: 安全扫描
+    alt 风险高
+        SC->>U: 送人工审批
+    else 风险低
+        SC->>DB: 存历史
+        SC->>U: 返回结果
+    end
+```
+
+### 自进化闭环
+
+```mermaid
+graph LR
+    A[用户反馈 👍/👎] --> B[反馈收集]
+    B --> C[自动归纳规则建议]
+    C --> D[管理员审核]
+    D --> E[回测验证 Level 3]
+    E -->|通过| F[规则上线]
+    E -->|不通过| C
+    F --> G[回答更准]
+    G --> A
+```
+
+### 权限模型
+
+```mermaid
+graph TD
+    subgraph 管理员["admin 全部权限"]
+        A1[用户管理]
+        A2[模型配置]
+        A3[运维管理]
+    end
+
+    subgraph 厂长["boss 全部业务+审批"]
+        B1[6个场景]
+        B2[审批操作]
+    end
+
+    subgraph 业务角色["部门角色"]
+        C1[财务: 仅对账]
+        C2[销售: 仅交期]
+        C3[生产: 齐套+日报+设备]
+        C4[质量: 仅追溯]
+    end
+
+    管理员 --> 厂长 --> 业务角色
+```
 
 ## ✨ 功能特性
 
@@ -144,4 +242,3 @@ python run_tests.py
 ## 📄 License
 
 MIT
-
